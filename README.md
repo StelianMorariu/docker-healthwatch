@@ -15,7 +15,7 @@ Listens to Docker containers `health_status` events and posts a Markdown message
 
 **Example message**
 ```
-🟥 Container Unhealthy
+🚨 Container Unhealthy
 Environment: homelab
 Container: fake-app
 Image: busybox:1.36
@@ -70,18 +70,22 @@ services:
       - EMOJI_UNKNOWN=❔
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+
+      # Test container you can flip healthy/unhealthy
+  fake-app:
+    image: busybox:1.36
+    container_name: docker-healthwatch-test
+    restart: unless-stopped
+    command: sh -c "touch /tmp/healthy && sleep infinity"
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/healthy"]
+      interval: 10s
+      timeout: 2s
+      retries: 1
+      start_period: 5s  
 ```
 
 In Portainer, set `DISCORD_WEBHOOK_URL` in the Variables panel.
-
-### Build locally 
-```bash
-docker build -t ghcr.io/<your-gh-user>/docker-healthwatch:dev .
-docker run --rm -e DISCORD_WEBHOOK_URL=... -e TZ=Europe/London \
-  -v /var/run/docker.sock:/var/run/docker.sock:ro \
-  ghcr.io/<your-gh-user>/docker-healthwatch:dev
-```
-
 
 
 ### Configuration (environment variables)
@@ -108,13 +112,13 @@ If you also deploy a simple test container:
 Make it **UNHEALTHY**:
 
 ```bash
-sudo docker exec fake-app sh -c 'rm -f /tmp/healthy'
+sudo docker exec fdocker-healthwatch-test sh -c 'rm -f /tmp/healthy'
 ```
 
 Make it **HEALTHY** again:
 
 ```bash
-sudo docker exec fake-app sh -c 'touch /tmp/healthy'
+sudo docker exec docker-healthwatch-test sh -c 'touch /tmp/healthy'
 ```
 
 Expected: Discord receives alerts for both transitions, with your Environment tag and local-TZ timestamp.
