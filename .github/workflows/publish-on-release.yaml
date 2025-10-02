@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: read
-  packages: write   # GHCR
+  packages: write   # needed for GHCR push
 
 env:
   IMAGE_NAME: docker-healthwatch
@@ -16,10 +16,14 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -28,14 +32,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 👇 Load optional Docker Hub creds into env (avoid secrets in `if`)
-      - name: Load Docker Hub creds (optional)
-        run: |
-          echo "DH_USER=${{ secrets.DOCKERHUB_USERNAME }}" >> "$GITHUB_ENV"
-          echo "DH_TOKEN=${{ secrets.DOCKERHUB_TOKEN }}"   >> "$GITHUB_ENV"
-
       # ===== GHCR =====
-      - name: Meta (GHCR)
+      - name: Extract Docker metadata (GHCR)
         id: meta-ghcr
         uses: docker/metadata-action@v5
         with:
@@ -67,18 +65,18 @@ jobs:
 
       # ===== Docker Hub (optional) =====
       - name: Login to Docker Hub
-        if: ${{ env.DH_USER != '' && env.DH_TOKEN != '' }}
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
         uses: docker/login-action@v3
         with:
-          username: ${{ env.DH_USER }}
-          password: ${{ env.DH_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Meta (Docker Hub)
-        if: ${{ env.DH_USER != '' && env.DH_TOKEN != '' }}
+      - name: Extract Docker metadata (Docker Hub)
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
         id: meta-dh
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.DH_USER }}/${{ env.IMAGE_NAME }}
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
           tags: |
             type=semver,pattern={{version}},value=${{ github.event.release.tag_name }}
             type=semver,pattern={{major}}.{{minor}},value=${{ github.event.release.tag_name }}
@@ -91,4 +89,16 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
 
       - name: Build & Push (Docker Hub)
-        if: ${{ env.DH_USER != '' && env.DH_TOKEN !
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-dh.outputs.tags }}
+          labels: ${{ steps.meta-dh.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ github.event.release.tag_name }}
+            VCS_REF=${{ github.sha }}
